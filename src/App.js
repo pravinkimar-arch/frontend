@@ -1,84 +1,52 @@
 import React, { useEffect } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import NavigationBar from './components/NavigationBar/NavigationBar';
-import Login from './components/Login/Login';
+import Login from './components/Auth/Login';
 import Signup from './components/Auth/Signup';
 import Products from './components/Products/Products';
 import ProductDetails from './components/ProductDetails/ProductDetails';
 import Order from './components/Order/Order';
-import AuthDebug from './components/AuthDebug/AuthDebug';
-import { isAuthenticated, validateToken, clearAuthToken } from './utils/authUtils';
-import { initializeAuthToken, getAuthToken } from './utils/authToken';
+import { ensureTokenExists, getAuthToken, isAuthenticated, setAuthToken } from './utils/authUtils';
 
-// Update the PrivateRoute component
+// Define the PrivateRoute component
 const PrivateRoute = ({ children }) => {
-  const authenticated = isAuthenticated();
-  console.log('PrivateRoute - isAuthenticated:', authenticated);
+  // Ensure token exists using our utility function
+  const token = ensureTokenExists();
   
-  return authenticated ? children : <Navigate to="/login" />;
+  // Check if authenticated
+  const isAuth = isAuthenticated();
+  console.log('PrivateRoute - isAuthenticated:', isAuth);
+  
+  return isAuth ? children : <Navigate to="/login" />;
 };
 
 function App() {
+  // Add this effect to ensure token exists on app load
   useEffect(() => {
-    // Initialize the token when the app starts
-    initializeAuthToken();
+    // Always set the token when the app loads (don't just check if it exists)
+    const token = setAuthToken();
+    console.log('App.js - Setting auth token on startup:', token ? 'Success' : 'Failed');
     
-    // Log the token to verify it's set
-    const token = getAuthToken();
-    console.log('App initialized with token:', token ? `${token.substring(0, 15)}...` : 'No token');
-  }, []);
-
-  // Add this effect to check token on app load
-  useEffect(() => {
-    const token = localStorage.getItem('authToken');
-    console.log('App.js - authToken in localStorage:', token ? 'Token exists' : 'Token is null');
-  }, []);
-
-  // Add this function to your App.js
-  const ensureTokenConsistency = () => {
-    const token = localStorage.getItem('authToken');
-    console.log('App.js - Checking token consistency:', token ? 'Token exists' : 'Token is null');
-    
-    // If token exists in sessionStorage but not in localStorage, copy it
-    if (!token) {
-      const sessionToken = sessionStorage.getItem('authToken');
-      if (sessionToken) {
-        console.log('App.js - Copying token from sessionStorage to localStorage');
-        localStorage.setItem('authToken', sessionToken);
+    // Check token every 15 seconds to ensure it's still there and valid
+    const interval = setInterval(() => {
+      const currentToken = getAuthToken();
+      const isValid = isAuthenticated();
+      console.log('Token check - token exists and valid:', isValid);
+      
+      // If token is missing or invalid, reset it
+      if (!isValid) {
+        console.log('Token invalid or missing, resetting...');
+        setAuthToken();
       }
-    }
-  };
-
-  // Call this function in your App component
-  useEffect(() => {
-    ensureTokenConsistency();
-    
-    // Set up an interval to periodically check token consistency
-    const interval = setInterval(ensureTokenConsistency, 5000);
+    }, 15000);
     
     return () => clearInterval(interval);
-  }, []);
-
-  // Add this to your App component
-  useEffect(() => {
-    const checkTokenValidity = async () => {
-      const isValid = await validateToken();
-      console.log('App.js - Token validation result:', isValid);
-      
-      if (!isValid) {
-        console.log('App.js - Clearing invalid token');
-        clearAuthToken();
-      }
-    };
-    
-    checkTokenValidity();
   }, []);
 
   return (
     <div>
       <NavigationBar />
       <Routes>
-        <Route path="/" element={<Products />} />
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<Signup />} />
         <Route path="/" element={<Login />} />

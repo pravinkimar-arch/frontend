@@ -6,6 +6,7 @@ import {
   Typography,
   Container 
 } from '@mui/material';
+import { getAuthToken } from '../../utils/authUtils';
 
 function AddProduct() {
   const [productData, setProductData] = useState({
@@ -20,11 +21,12 @@ function AddProduct() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
+      const token = getAuthToken();
       const response = await fetch('https://dev-project-ecommerce.upgrad.dev/api/products', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-auth-token': localStorage.getItem('authToken')
+          'x-auth-token': token
         },
         body: JSON.stringify(productData)
       });

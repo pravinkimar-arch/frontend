@@ -1,14 +1,11 @@
 import React, { useState } from 'react';
-import { Button, TextField, Typography, Container, Paper, Box } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
-import { initializeAuthToken } from '../../utils/authToken';
+import { setAuthToken } from '../../utils/auth';
 
-function Login() {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+const Login = () => {
   const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+  const [loading, setLoading] = useState(false);
 
   const handleLogin = async (event) => {
     event.preventDefault();
@@ -16,37 +13,44 @@ function Login() {
       setError('');
       setLoading(true);
       
-      // Use the correct format with username field
-      const requestBody = {
-        username: email,
-        password
-      };
-      
       const response = await fetch('https://dev-project-ecommerce.upgrad.dev/api/auth/signin', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(requestBody)
+        body: JSON.stringify({
+          email,
+          password
+        })
       });
       
       if (!response.ok) {
-        throw new Error('Login failed. Please check your credentials.');
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Login failed');
       }
       
-      // Since we can't get the token from the response headers, initialize with the manual token
-      initializeAuthToken();
-      
-      // Parse the response body for user info
       const data = await response.json();
+      console.log('Login successful, token received');
       
-      // Store user info if needed
-      localStorage.setItem('userEmail', email);
-      localStorage.setItem('userId', data.id || '');
+      // Store the token in localStorage
+      localStorage.setItem('authToken', data.token);
+      console.log('Token stored in localStorage:', data.token);
+      
+      // Also store in sessionStorage as backup
+      sessionStorage.setItem('authToken', data.token);
+      console.log('Token stored in sessionStorage:', data.token);
+      
+      // Verify the token was stored correctly
+      const storedToken = localStorage.getItem('authToken');
+      console.log('Verification - token in localStorage:', storedToken);
+      
+      // Set user info
+      setUserInfo(data.user);
       
       // Redirect to home page
       navigate('/');
     } catch (error) {
+      console.error('Login error:', error);
       setError(error.message);
     } finally {
       setLoading(false);
@@ -54,55 +58,10 @@ function Login() {
   };
 
   return (
-    <Container component="main" maxWidth="xs">
-      <Paper elevation={3} sx={{ p: 4, mt: 8 }}>
-        <Typography component="h1" variant="h5" align="center">
-          Sign In
-        </Typography>
-        <Box component="form" onSubmit={handleLogin} sx={{ mt: 1 }}>
-          <TextField
-            margin="normal"
-            required
-            fullWidth
-            id="email"
-            label="Email Address"
-            name="email"
-            autoComplete="email"
-            autoFocus
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-          />
-          <TextField
-            margin="normal"
-            required
-            fullWidth
-            name="password"
-            label="Password"
-            type="password"
-            id="password"
-            autoComplete="current-password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-          />
-          {error && (
-            <Typography color="error" variant="body2" sx={{ mt: 1 }}>
-              {error}
-            </Typography>
-          )}
-          <Button
-            type="submit"
-            fullWidth
-            variant="contained"
-            color="primary"
-            sx={{ mt: 3, mb: 2 }}
-            disabled={loading}
-          >
-            {loading ? 'Signing In...' : 'Sign In'}
-          </Button>
-        </Box>
-      </Paper>
-    </Container>
+    <div>
+      {/* Render your login form here */}
+    </div>
   );
-}
+};
 
 export default Login; 

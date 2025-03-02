@@ -10,7 +10,8 @@ import {
   Paper,
   Chip
 } from '@mui/material';
-import { getAuthToken } from '../../utils/authToken';
+import { getAuthToken, ensureTokenExists, setAuthToken } from '../../utils/authUtils';
+import apiService from '../../services/apiService';
 
 function ProductDetails() {
   const { id } = useParams();
@@ -21,6 +22,10 @@ function ProductDetails() {
   const [error, setError] = useState(null);
 
   useEffect(() => {
+    // Set token when component mounts
+    setAuthToken();
+    console.log('ProductDetails - Setting auth token on mount');
+    
     // Fetch product details when component mounts
     fetchProductDetails();
   }, [id]);
@@ -28,26 +33,18 @@ function ProductDetails() {
   const fetchProductDetails = async () => {
     try {
       setLoading(true);
+      // Use our utility function to get the token
       const token = getAuthToken();
+      console.log('Token in ProductDetails:', token ? 'Token exists' : 'Token is null');
       
-      const response = await fetch(`https://dev-project-ecommerce.upgrad.dev/api/products/${id}`, {
-        headers: {
-          'Content-Type': 'application/json',
-          'x-auth-token': token
-        }
-      });
-
-      if (!response.ok) {
-        throw new Error(`Failed to fetch product details: ${response.status}`);
-      }
-
-      const data = await response.json();
+      // Use the apiService instead of direct fetch
+      const data = await apiService.getProductDetails(id);
       console.log('Product details:', data);
       setProduct(data);
+      setLoading(false);
     } catch (error) {
       console.error('Error fetching product details:', error);
-      setError('Failed to load product details');
-    } finally {
+      setError('Failed to load product details. Please try again.');
       setLoading(false);
     }
   };
@@ -64,9 +61,17 @@ function ProductDetails() {
     localStorage.setItem('orderProduct', JSON.stringify(product));
     localStorage.setItem('orderQuantity', quantity);
     
-    // Get the token using our utility
-    const token = getAuthToken();
-    console.log('Token in ProductDetails before navigating:', token);
+    // Ensure token exists using our utility function
+    const token = setAuthToken();
+    console.log('Setting token before navigating to order page:', token ? 'Success' : 'Failed');
+    
+    if (!token) {
+      setError('Authentication required. Please log in again.');
+      setTimeout(() => {
+        navigate('/login');
+      }, 2000);
+      return;
+    }
     
     // Navigate to the order page
     navigate('/order');

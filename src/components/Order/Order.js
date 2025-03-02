@@ -16,23 +16,19 @@ import {
   InputLabel,
   Grid,
   Snackbar,
-  Alert,
-  FormHelperText,
-  IconButton
+  Alert
 } from '@mui/material';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
-import AuthDebug from '../AuthDebug/AuthDebug';
-import { getAuthToken } from '../../utils/authToken';
-import CloseIcon from '@mui/icons-material/Close';
+import { getAuthToken, ensureTokenExists, setAuthToken } from '../../utils/authUtils';
+import apiService from '../../services/apiService';
 
 const steps = ['Items', 'Select Address', 'Confirm Order'];
 
 function Order() {
   const navigate = useNavigate();
-  const [activeStep, setActiveStep] = useState(0);
+  const [activeStep, setActiveStep] = useState(1); // Start at address selection step
   const [addresses, setAddresses] = useState([]);
   const [selectedAddress, setSelectedAddress] = useState('');
-  const [showAddressForm, setShowAddressForm] = useState(false);
   const [newAddress, setNewAddress] = useState({
     name: '',
     contactNumber: '',
@@ -45,88 +41,82 @@ function Order() {
   const [orderProduct, setOrderProduct] = useState(null);
   const [orderQuantity, setOrderQuantity] = useState(1);
   const [error, setError] = useState('');
-  const [addAddressError, setAddAddressError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
 
   useEffect(() => {
-    // Get product details from localStorage
-    const storedProduct = localStorage.getItem('selectedProduct');
-    const storedQuantity = localStorage.getItem('selectedQuantity');
+    // First, ensure the token exists by explicitly setting it
+    const token = setAuthToken();
+    console.log('Order component - Setting auth token:', token ? 'Success' : 'Failed');
     
-    if (storedProduct) {
-      setOrderProduct(JSON.parse(storedProduct));
+    // Get product and quantity from localStorage
+    const product = JSON.parse(localStorage.getItem('orderProduct'));
+    const quantity = localStorage.getItem('orderQuantity');
+    
+    if (!product || !quantity) {
+      console.log('No product or quantity found in localStorage, redirecting to home');
+      navigate('/'); // Redirect if no product info
+      return;
     }
     
-    if (storedQuantity) {
-      setOrderQuantity(parseInt(storedQuantity));
-    }
+    setOrderProduct(product);
+    setOrderQuantity(parseInt(quantity));
     
-    // Fetch addresses
+    // Fetch user addresses
     fetchAddresses();
-  }, []);
+  }, [navigate]);
 
   const fetchAddresses = async () => {
     try {
       setError('');
+      // Always get a fresh token
       const token = getAuthToken();
       
-      const response = await fetch('https://dev-project-ecommerce.upgrad.dev/api/addresses', {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-auth-token': token
-        }
-      });
-      
-      if (response.status === 401) {
-        setError('Your session has expired. Please log in again.');
-        return;
+      if (!token) {
+        console.error('No token available for fetching addresses');
+        throw new Error('Authentication required');
       }
       
-      if (!response.ok) {
-        throw new Error('Failed to fetch addresses. Please try again.');
-      }
+      console.log('Fetching addresses with token:', token.substring(0, 10) + '...');
       
-      const data = await response.json();
-      setAddresses(data);
+      // Use apiService instead of direct fetch
+      const addresses = await apiService.getAddresses();
+      console.log('Successfully fetched addresses:', addresses.length);
+      setAddresses(addresses);
     } catch (error) {
+      console.error('Error fetching addresses:', error);
       setError(error.message);
+      
+      if (error.message.includes('Authentication required')) {
+        console.log('Authentication error, redirecting to login');
+        setTimeout(() => {
+          navigate('/login');
+        }, 2000);
+      }
     }
   };
 
   const handleAddressChange = (event) => {
     setSelectedAddress(event.target.value);
+    setError('');
   };
 
-  const handleNewAddressChange = (event) => {
-    const { name, value } = event.target;
-    setNewAddress(prev => ({ ...prev, [name]: value }));
+  const handleNewAddressChange = (field) => (event) => {
+    setNewAddress({
+      ...newAddress,
+      [field]: event.target.value
+    });
   };
 
-  const handleAddAddress = async () => {
+  const handleAddAddress = async (e) => {
+    e.preventDefault();
+    
     try {
-      // Validate required fields
-      if (!newAddress.name || !newAddress.street || !newAddress.city || 
-          !newAddress.state || !newAddress.zipcode || !newAddress.contactNumber) {
-        setAddAddressError('All fields are required');
-        return;
-      }
-      
-      // Validate zipcode (should be numeric and 6 digits)
-      if (!/^\d{6}$/.test(newAddress.zipcode)) {
-        setAddAddressError('Zipcode should be a 6-digit number');
-        return;
-      }
-      
-      // Validate contact number (should be numeric and 10 digits)
-      if (!/^\d{10}$/.test(newAddress.contactNumber)) {
-        setAddAddressError('Contact number should be a 10-digit number');
-        return;
-      }
-      
-      setAddAddressError('');
-      
+      setError('');
       const token = getAuthToken();
+      
+      if (!token) {
+        throw new Error('Authentication required');
+      }
       
       const response = await fetch('https://dev-project-ecommerce.upgrad.dev/api/addresses', {
         method: 'POST',
@@ -138,21 +128,23 @@ function Order() {
       });
       
       if (response.status === 401) {
-        setAddAddressError('Your session has expired. Please log in again.');
+        setError('Session expired. Please log in again.');
+        setTimeout(() => {
+          navigate('/login');
+        }, 2000);
         return;
       }
       
       if (!response.ok) {
-        throw new Error('Failed to add address. Please try again.');
+        throw new Error(`Failed to add address: ${response.status}`);
       }
       
-      const data = await response.json();
+      const addedAddress = await response.json();
+      setAddresses([...addresses, addedAddress]);
+      setSelectedAddress(addedAddress.id);
+      setSuccessMessage('Address added successfully!');
       
-      // Add the new address to the list and select it
-      setAddresses([...addresses, data]);
-      setSelectedAddress(data.id);
-      
-      // Reset the form and hide it
+      // Reset form
       setNewAddress({
         name: '',
         contactNumber: '',
@@ -162,459 +154,278 @@ function Order() {
         landmark: '',
         zipcode: ''
       });
-      setShowAddressForm(false);
     } catch (error) {
-      setAddAddressError(error.message);
+      console.error('Error adding address:', error);
+      setError(error.message);
+      
+      if (error.message.includes('Authentication required')) {
+        setTimeout(() => {
+          navigate('/login');
+        }, 2000);
+      }
     }
   };
 
   const handleNext = () => {
     if (activeStep === 1 && !selectedAddress) {
-      setError('Please select an address');
+      setError('Please select address!');
       return;
     }
     
-    setActiveStep(prevActiveStep => prevActiveStep + 1);
+    if (activeStep === 2) {
+      handlePlaceOrder();
+    } else {
+      setActiveStep((prevActiveStep) => prevActiveStep + 1);
+    }
   };
 
   const handleBack = () => {
-    setActiveStep(prevActiveStep => prevActiveStep - 1);
+    setActiveStep((prevActiveStep) => prevActiveStep - 1);
   };
 
-  const placeOrder = async () => {
+  const handlePlaceOrder = async () => {
+    if (!selectedAddress) {
+      setError('Please select address!');
+      return;
+    }
+    
     try {
-      if (!selectedAddress) {
-        setError('Please select an address');
-        return;
-      }
-      
       setError('');
-      
+      // Always get a fresh token
       const token = getAuthToken();
       
+      if (!token) {
+        console.error('No token available for placing order');
+        throw new Error('Authentication required');
+      }
+      
       const orderData = {
-        productId: orderProduct.id,
-        addressId: selectedAddress,
-        quantity: orderQuantity
+        quantity: orderQuantity,
+        product: orderProduct.id,
+        address: selectedAddress
       };
       
-      const response = await fetch('https://dev-project-ecommerce.upgrad.dev/api/orders', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-auth-token': token
-        },
-        body: JSON.stringify(orderData)
-      });
+      console.log('Placing order with data:', orderData);
       
-      if (response.status === 401) {
-        setError('Your session has expired. Please log in again.');
-        return;
-      }
+      // Use our apiService
+      await apiService.placeOrder(orderData);
       
-      if (!response.ok) {
-        throw new Error('Failed to place order. Please try again.');
-      }
-      
-      const data = await response.json();
-      
+      setActiveStep(3);
       setSuccessMessage('Your order is confirmed.');
-      setActiveStep(2); // Move to the confirmation step
+      
+      // Clear order data from localStorage
+      localStorage.removeItem('orderProduct');
+      localStorage.removeItem('orderQuantity');
     } catch (error) {
+      console.error('Error placing order:', error);
       setError(error.message);
+      
+      if (error.message.includes('Authentication required')) {
+        console.log('Authentication error, redirecting to login');
+        setTimeout(() => {
+          navigate('/login');
+        }, 2000);
+      }
     }
   };
 
-  const renderAddressForm = () => {
-    return (
-      <Box sx={{ maxWidth: 600, mx: 'auto', mt: 4 }}>
-        <Typography variant="h5" align="center" gutterBottom>
-          Add Address
-        </Typography>
-        
-        {addAddressError && (
-          <Alert 
-            severity="error" 
-            sx={{ 
-              mb: 2, 
-              bgcolor: '#e57373', 
-              color: 'white',
-              '& .MuiAlert-icon': {
-                color: 'white'
-              }
-            }}
-            action={
-              <IconButton
-                aria-label="close"
-                color="inherit"
-                size="small"
-                onClick={() => setAddAddressError('')}
-              >
-                <CloseIcon fontSize="inherit" />
-              </IconButton>
-            }
-          >
-            {addAddressError}
-          </Alert>
-        )}
-        
-        <Box component="form" sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-          <TextField
-            fullWidth
-            label="Name"
-            variant="outlined"
-            required
-            value={newAddress.name}
-            onChange={(e) => setNewAddress({ ...newAddress, name: e.target.value })}
-            InputLabelProps={{
-              shrink: true,
-            }}
-            placeholder="Name *"
-          />
-          
-          <TextField
-            fullWidth
-            label="Contact Number"
-            variant="outlined"
-            required
-            value={newAddress.contactNumber}
-            onChange={(e) => setNewAddress({ ...newAddress, contactNumber: e.target.value })}
-            InputLabelProps={{
-              shrink: true,
-            }}
-            placeholder="Contact Number *"
-          />
-          
-          <TextField
-            fullWidth
-            label="Street"
-            variant="outlined"
-            required
-            value={newAddress.street}
-            onChange={(e) => setNewAddress({ ...newAddress, street: e.target.value })}
-            InputLabelProps={{
-              shrink: true,
-            }}
-            placeholder="Street *"
-          />
-          
-          <TextField
-            fullWidth
-            label="City"
-            variant="outlined"
-            required
-            value={newAddress.city}
-            onChange={(e) => setNewAddress({ ...newAddress, city: e.target.value })}
-            InputLabelProps={{
-              shrink: true,
-            }}
-            placeholder="City *"
-          />
-          
-          <TextField
-            fullWidth
-            label="State"
-            variant="outlined"
-            required
-            value={newAddress.state}
-            onChange={(e) => setNewAddress({ ...newAddress, state: e.target.value })}
-            InputLabelProps={{
-              shrink: true,
-            }}
-            placeholder="State *"
-          />
-          
-          <TextField
-            fullWidth
-            label="Landmark"
-            variant="outlined"
-            value={newAddress.landmark}
-            onChange={(e) => setNewAddress({ ...newAddress, landmark: e.target.value })}
-            InputLabelProps={{
-              shrink: true,
-            }}
-            placeholder="Landmark"
-          />
-          
-          <TextField
-            fullWidth
-            label="Zip Code"
-            variant="outlined"
-            required
-            value={newAddress.zipcode}
-            onChange={(e) => setNewAddress({ ...newAddress, zipcode: e.target.value })}
-            InputLabelProps={{
-              shrink: true,
-            }}
-            placeholder="Zip Code *"
-          />
-          
-          <Button
-            variant="contained"
-            color="primary"
-            onClick={handleAddAddress}
-            sx={{ 
-              mt: 2, 
-              py: 1.5,
-              bgcolor: '#3f51b5',
-              '&:hover': {
-                bgcolor: '#303f9f'
-              }
-            }}
-          >
-            SAVE ADDRESS
-          </Button>
-        </Box>
-      </Box>
-    );
-  };
-
-  const renderAddressError = () => {
-    if (!error) return null;
-    
-    return (
-      <Alert 
-        severity="error" 
-        sx={{ 
-          mb: 2, 
-          bgcolor: '#e57373', 
-          color: 'white',
-          '& .MuiAlert-icon': {
-            color: 'white'
-          }
-        }}
-        action={
-          <IconButton
-            aria-label="close"
-            color="inherit"
-            size="small"
-            onClick={() => setError('')}
-          >
-            <CloseIcon fontSize="inherit" />
-          </IconButton>
-        }
-      >
-        {error}
-      </Alert>
-    );
-  };
-
-  const getStepContent = (step) => {
-    switch (step) {
-      case 0:
-        return (
-          <Box>
-            <Typography variant="h6">Order Summary</Typography>
-            <Grid container spacing={2} sx={{ mt: 2 }}>
-              <Grid item xs={12} md={4}>
-                {orderProduct?.imageUrl ? (
-                  <img 
-                    src={orderProduct.imageUrl} 
-                    alt={orderProduct.name} 
-                    style={{ width: '100%', maxHeight: '200px', objectFit: 'contain' }} 
-                  />
-                ) : (
-                  <Box 
-                    sx={{ 
-                      width: '100%', 
-                      height: '200px', 
-                      bgcolor: '#f5f5f5', 
-                      display: 'flex', 
-                      alignItems: 'center', 
-                      justifyContent: 'center' 
-                    }}
-                  >
-                    <Typography>No Image Available</Typography>
-                  </Box>
-                )}
-              </Grid>
-              <Grid item xs={12} md={8}>
-                <Typography variant="h6">{orderProduct?.name}</Typography>
-                <Typography variant="body1" color="textSecondary">
-                  Category: {orderProduct?.category}
-                </Typography>
-                <Typography variant="body2" sx={{ mt: 1 }}>
-                  {orderProduct?.description}
-                </Typography>
-                <Typography variant="h6" sx={{ mt: 2 }}>
-                  ₹{orderProduct?.price}
-                </Typography>
-                <Typography variant="body2">
-                  Quantity: {orderQuantity}
-                </Typography>
-              </Grid>
-            </Grid>
-          </Box>
-        );
-      case 1:
-        return (
-          <Box sx={{ mt: 2 }}>
-            {renderAddressError()}
-            
-            {!showAddressForm ? (
-              <>
-                <Typography variant="h6" gutterBottom>
-                  Select Address
-                </Typography>
-                
-                {addresses.length > 0 ? (
-                  <FormControl fullWidth sx={{ mb: 2 }}>
-                    <InputLabel id="address-select-label">Select Address</InputLabel>
-                    <Select
-                      labelId="address-select-label"
-                      value={selectedAddress}
-                      onChange={(e) => setSelectedAddress(e.target.value)}
-                      label="Select Address"
-                    >
-                      {addresses.map((address) => (
-                        <MenuItem key={address.id} value={address.id}>
-                          {address.name}, {address.street}, {address.city}, {address.state}, {address.zipcode}
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
-                ) : (
-                  <Typography variant="body1" sx={{ mb: 2 }}>
-                    No saved addresses found.
-                  </Typography>
-                )}
-                
-                <Button
-                  variant="outlined"
-                  color="primary"
-                  onClick={() => setShowAddressForm(true)}
-                  sx={{ mb: 2 }}
-                >
-                  Add New Address
-                </Button>
-              </>
-            ) : (
-              <>
-                {renderAddressForm()}
-                <Button
-                  variant="text"
-                  color="primary"
-                  onClick={() => setShowAddressForm(false)}
-                  sx={{ mt: 2 }}
-                >
-                  Back to Address Selection
-                </Button>
-              </>
-            )}
-          </Box>
-        );
-      case 2:
-        return (
-          <Box>
-            {successMessage ? (
-              <Box sx={{ textAlign: 'center', py: 4 }}>
-                <Typography variant="h5" color="primary">
-                  {successMessage}
-                </Typography>
-              </Box>
-            ) : (
-              <>
-                <Typography variant="h6">Order Confirmation</Typography>
-                {error && (
-                  <Typography color="error" sx={{ mt: 1 }}>
-                    {error}
-                  </Typography>
-                )}
-                <Box sx={{ mt: 2 }}>
-                  <Typography variant="body1">
-                    <strong>Product:</strong> {orderProduct?.name}
-                  </Typography>
-                  <Typography variant="body1">
-                    <strong>Quantity:</strong> {orderQuantity}
-                  </Typography>
-                  <Typography variant="body1">
-                    <strong>Price:</strong> ₹{orderProduct?.price}
-                  </Typography>
-                  <Typography variant="body1">
-                    <strong>Total:</strong> ₹{orderProduct?.price * orderQuantity}
-                  </Typography>
-                  
-                  {selectedAddress && addresses.length > 0 && (
-                    <Box sx={{ mt: 2 }}>
-                      <Typography variant="body1">
-                        <strong>Delivery Address:</strong>
-                      </Typography>
-                      {(() => {
-                        const address = addresses.find(a => a.id === selectedAddress);
-                        return address ? (
-                          <Typography variant="body2">
-                            {address.name}, {address.street}, {address.city}, {address.state}, {address.zipcode}
-                          </Typography>
-                        ) : null;
-                      })()}
-                    </Box>
-                  )}
-                </Box>
-              </>
-            )}
-          </Box>
-        );
-      default:
-        return 'Unknown step';
-    }
+  const getAddressDisplay = (address) => {
+    if (!address) return '';
+    return `${address.name}, ${address.street}, ${address.city}, ${address.state}, ${address.zipcode}`;
   };
 
   return (
-    <Container maxWidth="md" sx={{ mt: 4, mb: 4 }}>
-      {/* Only show in development */}
-      {process.env.NODE_ENV === 'development' && <AuthDebug />}
-      
+    <Container maxWidth="md" sx={{ py: 4 }}>
       <Paper elevation={3} sx={{ p: 3 }}>
-        <Stepper activeStep={activeStep} alternativeLabel>
-          {steps.map((label) => (
+        <Stepper activeStep={activeStep} sx={{ mb: 4 }}>
+          {steps.map((label, index) => (
             <Step key={label}>
               <StepLabel>{label}</StepLabel>
             </Step>
           ))}
         </Stepper>
-        
-        <div>
-          {activeStep === steps.length ? (
-            <div>
-              <Typography sx={{ mt: 2, mb: 1 }}>
-                All steps completed - your order is confirmed!
-              </Typography>
-            </div>
-          ) : (
-            <div>
-              {getStepContent(activeStep)}
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 3 }}>
-                <Button
-                  color="primary"
-                  disabled={activeStep === 0}
-                  onClick={handleBack}
-                  sx={{ 
-                    textTransform: 'uppercase',
-                    fontWeight: 'bold'
-                  }}
-                >
-                  BACK
-                </Button>
+
+        {activeStep === 3 ? (
+          <Box sx={{ textAlign: 'center', py: 4 }}>
+            <CheckCircleIcon color="success" sx={{ fontSize: 60, mb: 2 }} />
+            <Typography variant="h5" gutterBottom>
+              Your order is confirmed.
+            </Typography>
+            <Button 
+              variant="contained" 
+              onClick={() => navigate('/')}
+              sx={{ mt: 3, bgcolor: '#3f51b5' }}
+            >
+              Continue Shopping
+            </Button>
+          </Box>
+        ) : (
+          <>
+            {activeStep === 1 && (
+              <Box>
+                <Typography variant="h6" gutterBottom>
+                  Select Address
+                </Typography>
                 
-                <Button
-                  variant="contained"
-                  color="primary"
-                  onClick={activeStep === steps.length - 1 ? placeOrder : handleNext}
-                  sx={{ 
-                    bgcolor: '#3f51b5',
-                    '&:hover': {
-                      bgcolor: '#303f9f'
-                    },
-                    textTransform: 'uppercase',
-                    fontWeight: 'bold'
-                  }}
-                >
-                  {activeStep === steps.length - 1 ? 'PLACE ORDER' : 'NEXT'}
-                </Button>
+                <FormControl fullWidth sx={{ mb: 3 }}>
+                  <Select
+                    value={selectedAddress}
+                    onChange={handleAddressChange}
+                    displayEmpty
+                    renderValue={(selected) => {
+                      if (!selected) {
+                        return <em>Select...</em>;
+                      }
+                      const address = addresses.find(addr => addr.id === selected);
+                      return getAddressDisplay(address);
+                    }}
+                  >
+                    <MenuItem disabled value="">
+                      <em>Select...</em>
+                    </MenuItem>
+                    {addresses.map((address) => (
+                      <MenuItem key={address.id} value={address.id}>
+                        {getAddressDisplay(address)}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+
+                <Typography variant="h6" gutterBottom sx={{ mt: 4 }}>
+                  Add Address
+                </Typography>
+                
+                <Grid container spacing={2}>
+                  <Grid item xs={12}>
+                    <TextField
+                      required
+                      fullWidth
+                      label="Name"
+                      value={newAddress.name}
+                      onChange={handleNewAddressChange('name')}
+                    />
+                  </Grid>
+                  <Grid item xs={12}>
+                    <TextField
+                      required
+                      fullWidth
+                      label="Contact Number"
+                      value={newAddress.contactNumber}
+                      onChange={handleNewAddressChange('contactNumber')}
+                    />
+                  </Grid>
+                  <Grid item xs={12}>
+                    <TextField
+                      required
+                      fullWidth
+                      label="Street"
+                      value={newAddress.street}
+                      onChange={handleNewAddressChange('street')}
+                    />
+                  </Grid>
+                  <Grid item xs={12} sm={6}>
+                    <TextField
+                      required
+                      fullWidth
+                      label="City"
+                      value={newAddress.city}
+                      onChange={handleNewAddressChange('city')}
+                    />
+                  </Grid>
+                  <Grid item xs={12} sm={6}>
+                    <TextField
+                      required
+                      fullWidth
+                      label="State"
+                      value={newAddress.state}
+                      onChange={handleNewAddressChange('state')}
+                    />
+                  </Grid>
+                  <Grid item xs={12} sm={6}>
+                    <TextField
+                      fullWidth
+                      label="Landmark"
+                      value={newAddress.landmark}
+                      onChange={handleNewAddressChange('landmark')}
+                    />
+                  </Grid>
+                  <Grid item xs={12} sm={6}>
+                    <TextField
+                      required
+                      fullWidth
+                      label="Zipcode"
+                      value={newAddress.zipcode}
+                      onChange={handleNewAddressChange('zipcode')}
+                    />
+                  </Grid>
+                  <Grid item xs={12}>
+                    <Button 
+                      variant="contained" 
+                      onClick={handleAddAddress}
+                      sx={{ bgcolor: '#3f51b5' }}
+                    >
+                      Save Address
+                    </Button>
+                  </Grid>
+                </Grid>
               </Box>
-            </div>
-          )}
-        </div>
+            )}
+
+            {activeStep === 2 && (
+              <Box>
+                <Typography variant="h6" gutterBottom>
+                  Order Summary
+                </Typography>
+                
+                {orderProduct && (
+                  <Box sx={{ mb: 3 }}>
+                    <Typography variant="subtitle1">
+                      <strong>{orderProduct.name}</strong>
+                    </Typography>
+                    <Typography variant="body1">
+                      Quantity: {orderQuantity}
+                    </Typography>
+                    <Typography variant="body1">
+                      Category: {orderProduct.category}
+                    </Typography>
+                    <Typography variant="h6" color="error" sx={{ mt: 1 }}>
+                      Total Price: ₹ {orderProduct.price * orderQuantity}
+                    </Typography>
+                  </Box>
+                )}
+                
+                <Typography variant="h6" gutterBottom>
+                  Shipping Address
+                </Typography>
+                
+                {selectedAddress && (
+                  <Box sx={{ p: 2, border: '1px solid #ddd', borderRadius: 1 }}>
+                    <Typography variant="body1">
+                      {getAddressDisplay(addresses.find(addr => addr.id === selectedAddress))}
+                    </Typography>
+                  </Box>
+                )}
+              </Box>
+            )}
+
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 4 }}>
+              <Button
+                disabled={activeStep === 0}
+                onClick={handleBack}
+                sx={{ mr: 1 }}
+              >
+                Back
+              </Button>
+              <Button
+                variant="contained"
+                onClick={handleNext}
+                sx={{ bgcolor: '#3f51b5' }}
+              >
+                {activeStep === steps.length - 1 ? 'Place Order' : 'Next'}
+              </Button>
+            </Box>
+          </>
+        )}
       </Paper>
 
       {/* Error and Success Messages */}

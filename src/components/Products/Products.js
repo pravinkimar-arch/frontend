@@ -18,6 +18,8 @@ import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import { Button as MuiButton } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
+import { getAuthToken } from '../../utils/authUtils';
+import apiService from '../../services/apiService';
 
 function Products() {
   const [products, setProducts] = useState([]);
@@ -79,23 +81,11 @@ function Products() {
 
   const fetchProducts = async () => {
     try {
-      const baseUrl = 'https://dev-project-ecommerce.upgrad.dev/api/products';
-      
-      const response = await fetch(baseUrl, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-auth-token': localStorage.getItem('authToken') || ''
-        }
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        console.log('Fetched all products:', data);
-        setAllProducts(data); // Store all products
-      } else {
-        console.error('API Error:', response.status, await response.text());
-      }
+      console.log('Fetching products...');
+      // Use our apiService instead of direct fetch
+      const data = await apiService.getProducts();
+      console.log('Fetched all products:', data);
+      setAllProducts(data); // Store all products
     } catch (error) {
       console.error('Failed to fetch products:', error);
     }

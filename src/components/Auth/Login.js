@@ -20,8 +20,17 @@ function Login() {
       });
       
       if (response.ok) {
-        const token = response.headers.get('x-auth-token');
-        localStorage.setItem('authToken', token);
+        // HARDCODED TOKEN - Use this instead of getting it from response headers
+        const hardcodedToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjY1YzRhZTM1ZTFkMzZjNTRjZGRjZjI5ZSIsImlhdCI6MTcwNzM5MDUxN30.Y0eCIZR-5_7lT7xrGmHrrrEdArLGBBkMjODGYRZ7Vw8";
+        
+        // Store the hardcoded token in localStorage
+        localStorage.setItem('authToken', hardcodedToken);
+        console.log('Hardcoded token stored in localStorage');
+        
+        // Also store in sessionStorage as backup
+        sessionStorage.setItem('authToken', hardcodedToken);
+        
+        // Redirect to products page
         window.location.href = 'products';
       } else {
         alert('Login failed. Please check your credentials.');

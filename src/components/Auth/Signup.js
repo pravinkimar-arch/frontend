@@ -45,13 +45,15 @@ function Signup() {
       });
 
       if (response.ok) {
-        alert('Signup successful!');
+        alert('Signup successful! Please login with your credentials.');
         window.location.href = '/login';
       } else {
-        alert('Signup failed. Please try again.');
+        const errorData = await response.json();
+        alert(`Signup failed: ${errorData.message || 'Please try again.'}`);
       }
     } catch (error) {
       alert('An error occurred. Please try again.');
+      console.error('Signup error:', error);
     }
   };
 

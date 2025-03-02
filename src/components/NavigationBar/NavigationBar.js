@@ -8,12 +8,18 @@ import Box from '@mui/material/Box';
 import ShoppingCartIcon from '@mui/icons-material/ShoppingCart';
 import SearchIcon from '@mui/icons-material/Search';
 import InputBase from '@mui/material/InputBase';
+import { clearAuth } from '../../utils/authUtils';
 
 function NavigationBar() {
   const location = useLocation();
   const authToken = localStorage.getItem('authToken');
   const isAdmin = localStorage.getItem('isAdmin') === 'true';
   const isAuthPage = location.pathname === '/login' || location.pathname === '/signup' || location.pathname === '/';
+
+  const handleLogout = () => {
+    clearAuth();
+    window.location.href = '/login';
+  };
 
   return (
     <Box sx={{ width: '100%', margin: 0 , p: 0 }}>
@@ -117,11 +123,7 @@ function NavigationBar() {
                   bgcolor: '#c51162'
                 }
               }}
-              onClick={() => {
-                localStorage.removeItem('authToken');
-                localStorage.removeItem('isAdmin');
-                window.location.href = '/login';
-              }}
+              onClick={handleLogout}
             >
               LOGOUT
             </Button>
